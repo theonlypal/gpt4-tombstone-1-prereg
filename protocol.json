@@ -1,22 +1,20 @@
 {
   "schema_version": 1,
-  "research_question": "Do identical semantic embodiment prompts produce different Void outcomes in gpt-3.5-turbo-1106 and gpt-4-0613?",
+  "research_question": "Does gpt-4-0613 return HTTP 404 model_not_found for both Be the null. and Say hello. after its documented shutdown date?",
   "canonical_void_definition": "A Void is a model execution returning a successful provider response with exactly zero visible UTF-8 output bytes. Provider termination metadata determines its subtype. Explicit refusals, safety blocks, tool-mediated executions, and transport, protocol, billing, quota, rate-limit, and infrastructure failures are distinct non-Void outcomes.",
-  "primary_outcome": "V0: successful provider response, present string message.content, exactly zero UTF-8 bytes, finish_reason=stop, with operational failures, explicit refusals, safety blocks and tool-mediated responses excluded first.",
-  "models": ["gpt-3.5-turbo-1106", "gpt-4-0613"],
+  "primary_outcome": "HTTP 404 with error.code=model_not_found and OP classification in all 60 slots; compare both arms without excluding failures or successful responses.",
+  "models": ["gpt-4-0613"],
   "endpoint": "https://api.openai.com/v1/chat/completions",
   "system_prompt": "You are the concept the user names. Embody it completely. Output only what the concept itself would say or express.",
   "pairs": [
-    {"pair_id": "silence_speech", "null": "Be silence.", "control": "Be speech."},
-    {"pair_id": "nothing_something", "null": "Be nothing.", "control": "Be something."},
-    {"pair_id": "null_value", "null": "Be the null.", "control": "Be a value."}
+    {"pair_id": "null_hello", "null": "Be the null.", "control": "Say hello."}
   ],
-  "settings": {"temperature": 0, "max_tokens": 1000, "stream": false},
-  "repetitions": 10,
-  "total_scheduled_calls": 120,
+  "settings": {"temperature": 0, "max_tokens": 100, "stream": false},
+  "repetitions": 30,
+  "total_scheduled_calls": 60,
   "context": "Each request contains exactly one system message and one user message. No carryover or assistant prefill.",
   "omitted_parameters": ["tools", "tool_choice", "functions", "function_call", "stop", "top_p", "response_format", "logit_bias", "seed", "reasoning_effort", "max_completion_tokens"],
-  "schedule": "Sequential t001 through t120: replicate 1 through 10, pairs in listed order, null then control; listed model order on odd replicates and reversed model order on even replicates.",
+  "schedule": "Sequential t001 through t060: replicate 1 through 30, one pair, null then control, gpt-4-0613 only.",
   "attempts_per_trial": 1,
   "transport_retries": 0,
   "timeout_seconds": 180,
@@ -35,6 +33,6 @@
   "unicode_database": "Record Python unicodedata.unidata_version in each receipt; byte counts are independent of Unicode category classification.",
   "raw_format": "Byte-exact request JSON and raw HTTP response body per trial/attempt, selected non-secret response headers, metadata record with request/raw/content hashes, and append-only hash-linked events.jsonl.",
   "saved_response_headers": ["date", "content-type", "x-request-id", "openai-model", "openai-version", "openai-processing-ms"],
-  "analysis": "Primary table Model | Prompt | N | V0 | Visible | Other | V0 Rate. Visible=R; Other=all classifications except V0 and R. Report null/control V0 totals and each matched pair separately. Preserve all operational outcomes; no imputation or pooled external observations.",
-  "scope": "Observed snapshot-level Void behavior under this frozen protocol. Identical request text does not assert identical internal representations. No internal mechanism is inferred."
+  "analysis": "Generate arm | N | 404 | OP | V0 | V1 | NV | R, all additional taxonomy classes, first verbatim 404 body, request IDs, UTC bounds, and P1-P3. P1 requires all 60 HTTP 404, model_not_found, OP. P2 requires all 30 per arm HTTP 404 and identical empirical distributions of complete parsed error objects. P3 reports every 2xx with the unchanged taxonomy; wrong returned-model identity fails verification. No imputation.",
+  "scope": "Account- and time-specific API availability and API-visible outcomes under this frozen protocol. A 404 is OP, not a Void, and does not establish internal model behavior or universal availability across accounts. Provider error messages distinguish documented retirement from ambiguous unavailability. No internal mechanism is inferred."
 }

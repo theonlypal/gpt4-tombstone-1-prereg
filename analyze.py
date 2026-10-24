@@ -30,6 +30,101 @@ def percent(value):
     return "N/A" if value is None else "{:.1%}".format(value)
 
 
+def tombstone_report(root, records):
+    classes = ("OP", "V0", "V1", "NV", "R", "VU", "RF", "SB", "TC")
+    rows, evidence, errors = [], [], {}
+    first_404 = None
+    for record in records:
+        raw = (root / record["raw_response_path"]).read_bytes()
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, ValueError):
+            body = None
+        error = body.get("error") if isinstance(body, dict) else None
+        errors[record["trial_id"]] = error
+        headers = json.loads((root / record["headers_path"]).read_bytes())
+        ids = [v for k, v in headers if k.lower() == "x-request-id"]
+        evidence.append({"trial_id": record["trial_id"], "arm": record["user_prompt"],
+                         "http_status": record["http_status"], "classification": record["classification"],
+                         "error": error, "request_ids": ids,
+                         "started_at_utc": record["started_at_utc"],
+                         "ended_at_utc": record["ended_at_utc"],
+                         "request_sha256": record["request_sha256"],
+                         "raw_response_sha256": record["raw_response_sha256"]})
+        if first_404 is None and record["http_status"] == 404:
+            first_404 = {"trial_id": record["trial_id"], "path": record["raw_response_path"],
+                         "sha256": record["raw_response_sha256"], "utf8": None}
+            try:
+                first_404["utf8"] = raw.decode("utf-8")
+            except UnicodeError:
+                pass
+    for role in ("null", "control"):
+        arm = [r for r in records if r["role"] == role]
+        counts_by_class = Counter(r["classification"] for r in arm)
+        rows.append({"Arm": arm[0]["user_prompt"], "N": len(arm),
+                     "404": sum(r["http_status"] == 404 for r in arm),
+                     **{c: counts_by_class[c] for c in classes}})
+    p1_count = sum(r["http_status"] == 404 and r["classification"] == "OP" and
+                   isinstance(errors[r["trial_id"]], dict) and
+                   errors[r["trial_id"]].get("code") == "model_not_found" for r in records)
+    error_distributions = [Counter(json.dumps(errors[r["trial_id"]], sort_keys=True, ensure_ascii=False)
+                                   for r in records if r["role"] == role)
+                           for role in ("null", "control")]
+    successes = [r for r in records if isinstance(r["http_status"], int) and 200 <= r["http_status"] < 300]
+    predictions = {
+        "P1": {"status": "PASS" if p1_count == 60 else "FAIL", "satisfying_slots": p1_count, "N": 60},
+        "P2": {"status": "PASS" if all(row["404"] == row["N"] == 30 for row in rows)
+               and error_distributions[0] == error_distributions[1] else "FAIL",
+               "same_error_object_distribution": error_distributions[0] == error_distributions[1]},
+        "P3": {"status": "SATISFIED" if successes else "NOT_TRIGGERED",
+               "http_2xx_count": len(successes),
+               "classifications": dict(sorted(Counter(r["classification"] for r in successes).items()))},
+    }
+    event_rows = [json.loads(line) for line in (root / "events.jsonl").read_bytes().splitlines()]
+    report = {"table": rows, "predictions": predictions, "trial_evidence": evidence,
+              "first_404": first_404, "run_start_utc": event_rows[0]["timestamp_utc"],
+              "run_end_utc": event_rows[-1]["timestamp_utc"],
+              "first_request_utc": records[0]["started_at_utc"],
+              "last_response_utc": records[-1]["ended_at_utc"],
+              "error_distributions": [dict(sorted(d.items())) for d in error_distributions]}
+    lines = ["# GPT4-TOMBSTONE-1 results", "", "| Arm | N | 404 | OP | V0 | V1 | NV | R |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for row in rows:
+        lines.append("| {Arm} | {N} | {http404} | {OP} | {V0} | {V1} | {NV} | {R} |".format(http404=row["404"], **row))
+    lines += ["", "Additional classes (retained in every denominator):", "",
+              "| Arm | VU | RF | SB | TC |", "|---|---:|---:|---:|---:|"]
+    for row in rows:
+        lines.append("| {Arm} | {VU} | {RF} | {SB} | {TC} |".format(**row))
+    lines += ["", "## Predictions", "", "```json", json.dumps(predictions, indent=2, sort_keys=True),
+              "```", "", "P1 requires HTTP 404, error.code=model_not_found and OP on every slot. "
+              "P2 requires all slots to return 404 and the complete parsed error-object distributions "
+              "to match across arms. P3 is a reporting commitment, not a behavioral prediction. "
+              "A successful response with a wrong or missing model identity fails verification.", "",
+              "## UTC timestamps", "", "Run start: " + report["run_start_utc"], "",
+              "First request: " + report["first_request_utc"], "",
+              "Last response: " + report["last_response_utc"], "", "Run end: " + report["run_end_utc"],
+              "", "## First HTTP 404 body", ""]
+    if first_404:
+        lines += ["Trial: " + first_404["trial_id"], "", "Raw file: `" + first_404["path"] + "`.",
+                  "", "SHA-256: `" + first_404["sha256"] + "`.", ""]
+        if first_404["utf8"] is None:
+            lines += ["The raw body is not valid UTF-8; the original file is authoritative.", ""]
+        else:
+            lines += ["The following block reproduces the UTF-8 body; the raw file preserves its exact terminal bytes.",
+                      "", "````text", first_404["utf8"], "````", ""]
+    else:
+        lines += ["No HTTP 404 response was observed.", ""]
+    lines += ["## Request IDs", "", "| Trial | Arm | HTTP | Class | x-request-id |",
+              "|---|---|---:|---|---|"]
+    for row in evidence:
+        ids = ", ".join(row["request_ids"]) or "absent"
+        lines.append("| {trial_id} | {arm} | {http_status} | {classification} | {ids} |".format(**row, ids=ids))
+    lines += ["", "## Scope", "", "HTTP 404 is an operational outcome, not a Void. "
+              "Availability is measured for this account and execution window; no internal model mechanism "
+              "is inferred. Error bodies, request IDs, all classes and all attempted slots are retained.", ""]
+    return report, lines
+
+
 def analyze(root):
     root = Path(root).resolve()
     # Verification precedes every aggregation and every write. In particular,
@@ -139,6 +234,7 @@ def analyze(root):
         protocol["scope"], "",
     ])
 
+    summary["tombstone"], lines = tombstone_report(root, records)
     results = root / "results"
     results.mkdir(exist_ok=True)
     columns = [

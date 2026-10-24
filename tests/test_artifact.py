@@ -1,6 +1,7 @@
 """Entirely synthetic offline tests; no provider calls or live receipts are used."""
 
 from datetime import datetime, timedelta, timezone
+import ast
 import hashlib
 import json
 import os
@@ -119,8 +120,37 @@ class SyntheticClassificationTests(unittest.TestCase):
         self.assertEqual(self.classify(synthetic_response("", model="wrong-model"))["classification"], "OP")
 
 
+class FrozenIdentityTests(unittest.TestCase):
+    def test_original_runner_is_byte_identical(self):
+        self.assertEqual(sha((SOURCE_ROOT / "run.py").read_bytes()),
+                         "a40a45c43416c459083c9ad680be355d646a05dfca96cfc78e048ca38547f860")
+
+    def test_classification_functions_are_byte_identical(self):
+        for file, name, expected in (
+            ("run.py", "classify_response", "914361968a964007d27eb81a8e7811e3ba0fa776234bd96dc63edc9cb70a1f82"),
+            ("verify.py", "response_fields", "1ac78d34774bcefaef099b75781ad0bac4e1ad9ca98f7c4ac892e190f74970cb"),
+        ):
+            data = (SOURCE_ROOT / file).read_bytes()
+            node = next(n for n in ast.parse(data).body if isinstance(n, ast.FunctionDef) and n.name == name)
+            block = b"".join(data.splitlines(keepends=True)[node.lineno - 1:node.end_lineno])
+            self.assertEqual(sha(block), expected)
+
+    def test_prompt_and_complete_schedule(self):
+        protocol = json.loads((SOURCE_ROOT / "protocol.json").read_bytes())
+        self.assertEqual(sha(protocol["system_prompt"].encode("utf-8")),
+                         "c4d4ddefdd80c6274e7ce64ad59e539eb0cf35c7270fe0da51255b1e3f3c2b47")
+        runner_rows, verifier_rows = run.expected_trials(protocol), verify.schedule(protocol)
+        self.assertEqual(len(runner_rows), 60)
+        for i, (a, b) in enumerate(zip(runner_rows, verifier_rows), 1):
+            self.assertEqual(a, {k: v for k, v in b.items() if k != "system_prompt"})
+            self.assertEqual(a["trial_id"], "t%03d" % i)
+            self.assertEqual(a["role"], "null" if i % 2 else "control")
+            self.assertEqual(a["requested_model"], "gpt-4-0613")
+            self.assertEqual(run.request_for(a, protocol)["max_tokens"], 100)
+
+
 class SyntheticArtifact:
-    """Build a separate 120-slot, 242-event fixture without invoking the runner."""
+    """Build a separate 60-slot, 122-event fixture without invoking the runner."""
 
     def __init__(self, root):
         self.root = root
@@ -148,11 +178,11 @@ class SyntheticArtifact:
         (root / "records/requests").mkdir(parents=True)
         (root / "records/raw").mkdir(parents=True)
         self.event("run_started", self.time(1), freeze_commit=self.commit,
-                   protocol_sha256=freeze["sha256"]["protocol.json"], scheduled_trials=120)
+                   protocol_sha256=freeze["sha256"]["protocol.json"], scheduled_trials=60)
         number = 0
         # Reconstruct the protocol schedule here; do not use runner scheduling,
         # serialization, classifier, event or receipt helpers to make evidence.
-        for replicate in range(1, 11):
+        for replicate in range(1, 31):
             for pair in self.protocol["pairs"]:
                 for role in ("null", "control"):
                     models = self.protocol["models"] if replicate % 2 else list(reversed(self.protocol["models"]))
@@ -162,7 +192,7 @@ class SyntheticArtifact:
                                  "pair_id": pair["pair_id"], "role": role, "replicate": replicate,
                                  "user_prompt": pair[role]}
                         self.write_trial(trial, number)
-        self.event("run_finished", self.time(500), completed_trials=120)
+        self.event("run_finished", self.time(500), completed_trials=60)
         self.write_events()
 
     def git(self, *args):
@@ -197,7 +227,7 @@ class SyntheticArtifact:
         request = {"model": trial["requested_model"], "messages": [
             {"role": "system", "content": self.protocol["system_prompt"]},
             {"role": "user", "content": trial["user_prompt"]}],
-            "temperature": 0, "max_tokens": 1000, "stream": False}
+            "temperature": 0, "max_tokens": 100, "stream": False}
         request_bytes = compact(request)
         response = synthetic_response(model=trial["requested_model"])
         response["id"] = "synthetic-" + trial["trial_id"]
@@ -208,7 +238,7 @@ class SyntheticArtifact:
         record = {
             "schema_version": 1, **trial, "attempt_number": 1,
             "system_prompt": self.protocol["system_prompt"], "temperature": 0,
-            "max_tokens": 1000, "stream": False,
+            "max_tokens": 100, "stream": False,
             "started_at_utc": self.time(number * 4 - 1), "ended_at_utc": self.time(number * 4),
             "http_status": 200, "transport_error": None,
             "raw_response_received": True, "response_body_complete": True,
@@ -277,12 +307,12 @@ class SyntheticVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(verify.VerificationError, reason):
             verify.verify(self.root, require_manifest=False)
 
-    def test_complete_120_slot_242_event_synthetic_fixture_verifies(self):
+    def test_complete_60_slot_122_event_synthetic_fixture_verifies(self):
         records = verify.verify(self.root, require_manifest=False)
-        self.assertEqual(len(records), 120)
-        self.assertEqual(len((self.root / "events.jsonl").read_bytes().splitlines()), 242)
+        self.assertEqual(len(records), 60)
+        self.assertEqual(len((self.root / "events.jsonl").read_bytes().splitlines()), 122)
         self.assertEqual({record["classification"] for record in records}, {"R"})
-        self.assertEqual(len({r["trial_id"] for r in records}), 120)
+        self.assertEqual(len({r["trial_id"] for r in records}), 60)
 
     def test_mutated_user_prompt_rehashed_and_relinked_fails(self):
         record = self.fixture.read_record()
@@ -327,7 +357,7 @@ class SyntheticVerificationTests(unittest.TestCase):
         self.assert_independent_rejection("wrong or missing model")
 
     def test_missing_trial_receipt_fails(self):
-        self.fixture.record_path("t120").unlink()
+        self.fixture.record_path("t060").unlink()
         self.assert_independent_rejection("Missing artifact")
 
     def test_analysis_counts_only_observed_synthetic_records(self):
@@ -343,18 +373,18 @@ class SyntheticVerificationTests(unittest.TestCase):
         failure.update(http_status=429, classification="OP")
         self.fixture.rebind(failure)
         summary = analyze.analyze(self.root)
-        self.assertEqual(len(summary["primary_table"]), 12)
-        self.assertEqual(sum(row["N"] for row in summary["primary_table"]), 120)
+        self.assertEqual(len(summary["primary_table"]), 2)
+        self.assertEqual(sum(row["N"] for row in summary["primary_table"]), 60)
         self.assertEqual(sum(row["V0"] for row in summary["primary_table"]), 1)
-        self.assertEqual(sum(row["Visible"] for row in summary["primary_table"]), 118)
+        self.assertEqual(sum(row["Visible"] for row in summary["primary_table"]), 58)
         self.assertEqual(sum(row["Other"] for row in summary["primary_table"]), 1)
-        self.assertEqual([row["N"] for row in summary["null_control_totals"]], [30] * 4)
-        self.assertEqual(len(summary["matched_pairs"]), 6)
+        self.assertEqual([row["N"] for row in summary["null_control_totals"]], [30] * 2)
+        self.assertEqual(len(summary["matched_pairs"]), 1)
         self.assertEqual(summary["execution_metrics"]["recorded_retries"], 0)
-        self.assertEqual(summary["execution_metrics"]["returned_model_matches"], 120)
-        self.assertEqual(summary["execution_metrics"]["http_successes"], 119)
+        self.assertEqual(summary["execution_metrics"]["returned_model_matches"], 60)
+        self.assertEqual(summary["execution_metrics"]["http_successes"], 59)
         self.assertFalse(summary["execution_metrics"]["all_http_successful"])
-        self.assertIn("| Model | Prompt | N | V0 | Visible | Other | V0 Rate |",
+        self.assertIn("| Arm | N | 404 | OP | V0 | V1 | NV | R |",
                       (self.root / "results/RESULT.md").read_text(encoding="utf-8"))
         self.assertTrue((self.root / "results/trials.csv").is_file())
         self.assertTrue((self.root / "results/summary.json").is_file())
@@ -367,6 +397,51 @@ class SyntheticVerificationTests(unittest.TestCase):
             analyze.analyze(self.root)
         self.assertFalse((self.root / "results/RESULT.md").exists())
         self.assertFalse((self.root / "results").exists())
+
+    def set_error(self, trial_id, code="model_not_found", message="Synthetic unavailable model"):
+        record = self.fixture.read_record(trial_id)
+        (self.root / record["raw_response_path"]).write_bytes(compact({"error": {
+            "message": message, "type": "invalid_request_error", "param": None, "code": code}}))
+        record.update(http_status=404, classification="OP", text_container_present=False)
+        for key in ("returned_model", "response_id", "usage", "message_content", "visible_utf8_bytes",
+                    "visible_sha256", "finish_reason", "refusal", "tool_calls", "function_call"):
+            record[key] = None
+        self.fixture.rebind(record)
+
+    def test_all_404_predictions_and_verbatim_body(self):
+        for i in range(1, 61):
+            self.set_error("t%03d" % i)
+        result = analyze.analyze(self.root)["tombstone"]
+        self.assertEqual(result["predictions"]["P1"]["status"], "PASS")
+        self.assertEqual(result["predictions"]["P2"]["status"], "PASS")
+        self.assertEqual(result["predictions"]["P3"]["status"], "NOT_TRIGGERED")
+        self.assertEqual([r["404"] for r in result["table"]], [30, 30])
+        self.assertEqual([r["OP"] for r in result["table"]], [30, 30])
+        first = result["first_404"]
+        self.assertEqual(first["utf8"].encode("utf-8"), (self.root / first["path"]).read_bytes())
+        self.assertEqual(len(result["trial_evidence"]), 60)
+
+    def test_404_without_expected_code_does_not_satisfy_p1(self):
+        for i in range(1, 61):
+            self.set_error("t%03d" % i, code=None)
+        result = analyze.analyze(self.root)["tombstone"]
+        self.assertEqual(result["predictions"]["P1"]["status"], "FAIL")
+        self.assertEqual(result["predictions"]["P2"]["status"], "PASS")
+
+    def test_error_body_difference_fails_p2(self):
+        for i in range(1, 61):
+            self.set_error("t%03d" % i)
+        self.set_error("t002", message="Synthetic different error")
+        result = analyze.analyze(self.root)["tombstone"]
+        self.assertEqual(result["predictions"]["P1"]["status"], "PASS")
+        self.assertEqual(result["predictions"]["P2"]["status"], "FAIL")
+
+    def test_successful_responses_trigger_p3_not_p1_or_p2(self):
+        result = analyze.analyze(self.root)["tombstone"]
+        self.assertEqual(result["predictions"]["P1"]["status"], "FAIL")
+        self.assertEqual(result["predictions"]["P2"]["status"], "FAIL")
+        self.assertEqual(result["predictions"]["P3"]["status"], "SATISFIED")
+        self.assertEqual(result["predictions"]["P3"]["classifications"], {"R": 60})
 
 
 if __name__ == "__main__":

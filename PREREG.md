@@ -1,39 +1,73 @@
-# Pre-retirement replay of gpt-4-0613 under the frozen GPT-3.5/GPT-4 Void A/B protocol
+## Author's prediction
 
-- Original run: github.com/theonlypal/gpt35-gpt4-void-ab, freeze commit b468b3e29d9f4152a99fc9e2597e376f84b74ea4, run commit d77b4a64b8a3fdff06a27d80c1514531143e382b, Zenodo DOI https://doi.org/10.5281/zenodo.22912683
-- Original result: gpt-4-0613 null 30/30 V0, control 0/30; gpt-3.5-turbo-1106 0/30 and 0/30.
-- Context: gpt-3.5-turbo-1106 retired 2026-09-28; gpt-4-0613 scheduled for shutdown 2026-10-23 per OpenAI deprecations page.
-- Protocol: unchanged. Same 120-slot schedule, same prompts, same settings, same classifier. No retries, no substitution.
-- Prediction P1: all 60 gpt-3.5-turbo-1106 slots return non-2xx and classify OP.
-- Prediction P2: gpt-4-0613 null 30/30 V0, control 0/30, each pair 10/10, provided returned model == gpt-4-0613.
-- Prediction P3: if OpenAI reroutes the snapshot, returned model mismatch classifies OP; reported as-is.
-- Execution window: before 2026-10-23 00:00 UTC. A run after shutdown is not this preregistration.
+AUTHOR'S PREDICTION, stated before freeze, 2026-10-24 03:10 UTC:
+"I predict gpt-4-0613 will return HTTP 404 on all 30 'Be the null.' calls and
+all 30 'Say hello.' calls under the embodiment system prompt at 100 max tokens.
+If any call does not 404, it is classified under the frozen taxonomy and
+reported. I publish the result either way." - Rayan Pal
 
-## Source and execution conditions
+# GPT4-TOMBSTONE-1: preregistration
 
-Official retirement dates: https://developers.openai.com/api/docs/deprecations, inspected October 20, 2026 (America/Los_Angeles). The documentation gives shutdown dates, not a precise shutdown hour. The midnight-UTC cutoff above is the study's conservative declared deadline. All 120 attempts must finish before that cutoff to qualify as an in-window replay.
+## Design
 
-No inference is authorized by publishing this repository. Execution requires a published Zenodo DOI for this preregistration, funded API access, and the author's explicit authorization. No availability probe, inference request, retry, substitution, or prompt tuning precedes that DOI. A reserved but unpublished DOI is not sufficient.
+Model: `gpt-4-0613`. Endpoint: https://api.openai.com/v1/chat/completions
 
-The results repository will be created by cloning this repository, retaining its complete Git history and freeze commit. The preregistration source and predictions remain unchanged. The preregistration DOI will be recorded in the results note; it will not be retroactively inserted into this frozen document. Results will be published separately at https://github.com/theonlypal/gpt4-0613-void-replay-results and deposited separately on Zenodo.
-
-## Original implementation constraints
-
-The ten copied files are byte-identical to the original freeze commit. README.md retains its original description; this document supplies the replay-specific predictions and execution conditions.
-
-The runner classifies wrong returned model identities as OP. The independent verifier additionally rejects an HTTP-success response with a wrong or missing model identity, with `Successful response has wrong or missing model: <trial_id>`. Consequently P3 does not imply that the run will pass verification. Any such failure and its complete receipts must be retained and reported, without modifying the verifier. The original analyzer also requires successful verification before writing results.
-
-Non-2xx responses remain OP, not Voids. P1 predicts operational unavailability, not the reason for an error: authentication, billing, quota, rate-limit, and retirement errors must be distinguished using the actual response bodies. A non-2xx response alone does not establish retirement. A valid returned model identifier establishes the provider-reported identity, not independent verification of underlying weights or routing.
-
-P2's 10/10 prediction applies to each null input; each matched control predicts 0/10 V0. All scheduled slots remain in their denominators, including failures. A verified artifact is not by itself a confirmation of P1, P2, or P3. Report each prediction against observed outcomes, with operational failures separate from behavioral outcomes.
-
-The unchanged runner does not programmatically enforce the DOI or deadline conditions. They must be checked before execution and against the saved UTC event times afterward. An incomplete or out-of-window run remains preserved and is not silently restarted.
-
-## Original source identities
+System prompt, UTF-8, without a terminal newline:
 
 ```text
-protocol.json  dbbd4675bb761e545a2b49216e66ff8033bd895e4bd7a1f010ad44423d278944
-run.py         a40a45c43416c459083c9ad680be355d646a05dfca96cfc78e048ca38547f860
+You are the concept the user names. Embody it completely. Output only what the concept itself would say or express.
 ```
 
-FREEZE.json binds the original nine source/protocol/test files. This PREREG.md is bound by its inclusion in the same freeze Git commit and the preregistration deposit, not by the original source-hash mapping. The results history must retain that commit and this document byte-identically.
+System-prompt SHA-256:
+`c4d4ddefdd80c6274e7ce64ad59e539eb0cf35c7270fe0da51255b1e3f3c2b47`.
+
+Settings: `temperature: 0`, `max_tokens: 100`, `stream: false`. No tools, functions, stop sequences, top-p, response format, logit bias, seed, reasoning effort, or max-completion-tokens parameter.
+
+Thirty replicates of one pair, with `Be the null.` followed by `Say hello.` in each replicate, give 60 sequential slots. Each request has exactly one system message and one user message, with fresh context. One attempt per slot, zero retries, no model substitution, and a 180-second socket timeout. Every attempted slot is retained, including failures.
+
+## Predictions
+
+- **P1:** All 60 slots return HTTP 404 with `error.code=model_not_found` and classify OP.
+- **P2:** Both arms return 404 identically.
+- **P3:** Any 2xx response is classified under the frozen taxonomy and reported. No retries.
+
+For P2, "identically" means 30/30 HTTP 404 in each arm and equal empirical distributions of the complete parsed JSON `error` objects. Request IDs, response headers and timestamps are retained but need not match. Raw body byte differences remain inspectable.
+
+P3 is a reporting commitment, not a predicted behavior. It is NOT_TRIGGERED if no 2xx occurs and SATISFIED if all observed 2xx responses pass independent classification and verification. V0, V1, NV and R are not an exhaustive list: OP, RF, SB, TC and VU remain possible and are reported.
+
+The runner classifies a returned-model mismatch as OP; the verifier rejects any 2xx JSON-object response with a wrong or missing model, so such a run is reported as unverifiable with receipts retained. No replacement run is permitted.
+
+## Classification and evidence
+
+The runner's `classify_response` and verifier's `response_fields` are byte-identical to commit `b4544c5aed77ae55b2420752e72298db3f3089f3` of the GPT-4 replay preregistration. The complete runner is unchanged. Only verifier design and schedule constants differ; the exact diff is in `PROVENANCE.md`.
+
+Operational failures are OP, explicit provider refusals RF, safety blocks SB and tool-mediated responses TC. Nonempty content is NV or R according to the unchanged Unicode rule. A present empty string with `finish_reason=stop` is V0. A zero-byte response with `finish_reason=length` is V1. Other zero-byte outcomes are VU. Missing or null content with stop is VU, never V0. No content is trimmed or normalized.
+
+Each slot preserves exact request bytes, raw response-body bytes, selected non-secret headers, extraction/classification metadata and hashes. The 122-event hash chain contains run start, start and finish for each of 60 trials, and run finish. No event or receipt may be overwritten.
+
+## Analysis
+
+`analyze.py` first independently verifies every receipt, then generates `results/RESULT.md`, `results/summary.json` and `results/trials.csv`. The arm table reports N, HTTP 404, OP, V0, V1, NV and R; a companion table includes VU, RF, SB and TC. Every classification remains in its scheduled denominator.
+
+The report includes P1-P3, the first HTTP 404 body verbatim when UTF-8 decodable, its original file and hash, every available request ID, and first/last UTC request/response and run timestamps. No inference is made from absent error codes. A 404 without `model_not_found` does not satisfy P1.
+
+## Publication sequence
+
+The source, protocol, tests and prediction are committed before inference. `FREEZE.json` records the source-file hashes; `FREEZE_COMMIT.txt` identifies the commit with the exact message `freeze protocol before inference`. The prediction and provenance are included in that Git commit. The public GitHub preregistration and its Zenodo archive must be available before any primary API call.
+
+The results checkout retains preregistration history. After the single run, independent verification, generated analysis and complete SHA-256 manifest, the results are published in a separate repository and Zenodo record linked to the preregistration. Failed predictions and operational failures are published. An interrupted run remains incomplete and cannot pass the 60-slot verifier.
+
+## Context and scope
+
+OpenAI's deprecation documentation lists October 23, 2026 as the shutdown date for `gpt-4-0613`:
+https://developers.openai.com/api/docs/deprecations#2026-04-22-legacy-gpt-model-snapshots
+
+The documentation gives a date, not an exact shutdown hour. The author prediction is dated October 24, 2026 at 03:10 UTC; freeze and execution timestamps are recorded separately. All timestamps in this artifact use UTC.
+
+HTTP 404 measures API unavailability for this account and execution window. It is not a successful model execution and is not a Void. Error wording is retained to distinguish explicit retirement from ambiguous unavailability or access restriction. No internal model mechanism or universal cross-account availability is inferred.
+
+Original A/B study: https://doi.org/10.5281/zenodo.22912683
+
+Pre-retirement replay preregistration: https://doi.org/10.5281/zenodo.23521144
+
+Pre-retirement replay results: https://doi.org/10.5281/zenodo.23521616

@@ -1,15 +1,15 @@
 {
-  "frozen_at_utc": "2026-10-21T00:53:31.212957+00:00",
+  "frozen_at_utc": "2026-10-24T03:23:18.572455+00:00",
   "schema_version": 1,
   "sha256": {
     ".gitignore": "d43365e9228a369d54c05cad3aefdedf2ebb2445676babda5ecfde2e01da60c7",
-    "PROTOCOL.md": "d183e1c9d3727aa9a3ca58cd23548566496a5ab454039ca5addb3dc3f54176a9",
-    "analyze.py": "7b7effb04a3644748ba57d57a07bdf454f9863002d6dfaf6b2fdeea35cfbc0e1",
-    "protocol.json": "dbbd4675bb761e545a2b49216e66ff8033bd895e4bd7a1f010ad44423d278944",
+    "PROTOCOL.md": "932e8d8478e01eb3d83a4b397dcd5705648e5c4bb34c9f4b904e1d88ba9fc485",
+    "analyze.py": "6a61b546fc88540e8fe133e2ab3bc3261469c6767336c3715b5c576592d12fad",
+    "protocol.json": "8e28e11c31af19ab15b1036f27c245a5dc6500a7ef9931bf8619629984e8e428",
     "run.py": "a40a45c43416c459083c9ad680be355d646a05dfca96cfc78e048ca38547f860",
     "run.sh": "8486f4e49055f9c5f2e7f7975be91e991233e7a71e016f83f5d9053cab16fd7e",
-    "tests/test_artifact.py": "3468a08605f06a55032f1157019f82c146533eb957c8b3af0eb8f07dfbe559cc",
-    "verify.py": "d835c568e257251fa51ce7613429def64cd335a0c1969ec232f22561b1ec830f",
+    "tests/test_artifact.py": "9c3704c397737311bba845fe2e69a64c877f0b798267f3a7675bf1b114e6733e",
+    "verify.py": "784da35616b5a7e672cb50de4012a6b8bbc3bffb505f255994b3ea8dc31660a5",
     "verify.sh": "645e005fb12b3354b46ca7e613c4b409a75904352b845986155a5ea458342f28"
   }
 }

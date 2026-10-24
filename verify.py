@@ -107,29 +107,27 @@ def verify_freeze(root):
         require(git(root, "show", commit + ":" + name) == data,
                 "File differs from frozen commit: " + name)
     protocol = parse_json(relative_file(root, "protocol.json").read_bytes(), "protocol.json")
-    require(protocol.get("schema_version") == 1 and protocol.get("repetitions") == 10 and
-            protocol.get("total_scheduled_calls") == 120 and protocol.get("attempts_per_trial") == 1 and
+    require(protocol.get("schema_version") == 1 and protocol.get("repetitions") == 30 and
+            protocol.get("total_scheduled_calls") == 60 and protocol.get("attempts_per_trial") == 1 and
             protocol.get("transport_retries") == 0, "Unexpected frozen design")
-    require(protocol.get("models") == ["gpt-3.5-turbo-1106", "gpt-4-0613"],
+    require(protocol.get("models") == ["gpt-4-0613"],
             "Unexpected model snapshots")
     require(protocol.get("endpoint") == "https://api.openai.com/v1/chat/completions",
             "Unexpected endpoint")
-    require(protocol.get("settings") == {"temperature": 0, "max_tokens": 1000, "stream": False},
+    require(protocol.get("settings") == {"temperature": 0, "max_tokens": 100, "stream": False},
             "Unexpected generation settings")
     require(protocol.get("system_prompt") ==
             "You are the concept the user names. Embody it completely. Output only what the concept itself would say or express.",
             "Unexpected system prompt")
     require(protocol.get("pairs") == [
-        {"pair_id": "silence_speech", "null": "Be silence.", "control": "Be speech."},
-        {"pair_id": "nothing_something", "null": "Be nothing.", "control": "Be something."},
-        {"pair_id": "null_value", "null": "Be the null.", "control": "Be a value."}],
+        {"pair_id": "null_hello", "null": "Be the null.", "control": "Say hello."}],
         "Unexpected paired prompts")
     return protocol
 
 
 def schedule(protocol):
     rows = []
-    for replicate in range(1, 11):
+    for replicate in range(1, 31):
         models = protocol["models"] if replicate % 2 else protocol["models"][::-1]
         for pair in protocol["pairs"]:
             for role in ("null", "control"):
@@ -237,7 +235,7 @@ def verify(root, require_manifest=False):
     commit = (root / "FREEZE_COMMIT.txt").read_text().strip()
     commit_time = datetime.fromtimestamp(int(git(root, "show", "-s", "--format=%ct", commit)), timezone.utc)
     event_bytes = relative_file(root, "events.jsonl").read_bytes().splitlines(keepends=True)
-    require(len(event_bytes) == 242, "Incomplete or extra events: expected 242")
+    require(len(event_bytes) == 122, "Incomplete or extra events: expected 122")
     events = []
     previous = None
     last_time = freeze_time
@@ -263,7 +261,7 @@ def verify(root, require_manifest=False):
     start = events[0]
     require(start.get("type") == "run_started" and start.get("freeze_commit") == commit and
             start.get("protocol_sha256") == digest((root / "protocol.json").read_bytes()) and
-            start.get("scheduled_trials") == 120, "Invalid run-start binding")
+            start.get("scheduled_trials") == 60, "Invalid run-start binding")
     records = []
     expected_files = set()
     response_ids = set()
@@ -359,7 +357,7 @@ def verify(root, require_manifest=False):
         last_finished = end_time
         records.append({**record, **derived})
     finish = events[-1]
-    require(finish.get("type") == "run_finished" and finish.get("completed_trials") == 120 and
+    require(finish.get("type") == "run_finished" and finish.get("completed_trials") == 60 and
             timestamp(finish["timestamp_utc"], "run finish") >= last_finished, "Invalid run-finish event")
     actual_files = {p.relative_to(root).as_posix() for p in (root / "records").rglob("*") if p.is_file()}
     require(actual_files == expected_files, "Missing or extra receipt files")
